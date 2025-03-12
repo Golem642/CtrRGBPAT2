@@ -34,50 +34,70 @@ typedef struct {
     uint8_t b[32];
 } LED_MCU;
 
-const char* menu[10] = {
-    "Set notification RGB hex color",
-    "Change pattern for LED",
-    "Change animation speed (delay)",
-    "Change animation smoothness",
-    "Change loop delay",
-    "Change static ending",
-    "Test LED with pattern",
-    "Install IPS Patch",
-    "Toggle enabled state",
+typedef struct {
+    uint8_t seq[4];
+} LowBatPat;
+
+const char* mainMenu[8] = {
+    "Pattern editor",
+    "Animation settings",
+    "Test animation",
+    "Install animation",
+    "Load a pattern",
+    "Toggle patch",
+    "Low battery settings",
     "Shutdown 3DS"
 };
 
+const char* settingsMenu[4] = {
+    "Change animation speed (delay)",
+    "Change animation smoothness",
+    "Change loop delay (FF = no loop)",
+    "Change blink speed (unused ?)"
+};
+
 const char* installMenu[5] = {
-    "Sleep exit",
+    "Boot & Wake up",
     "SpotPass",
     "StreetPass",
     "Join friend game ???",
     "Friend online"
 };
 
-int currMenu = 0;
+const char* installModeMenu[2] = {
+    "While in sleep mode",
+    "While awake"
+};
 
-int selected, nbMain = 10;
-int nbInstall = 5;
-int nbCmd = nbMain;
-int nbCustom = 32;
+const char* loadMenu[2] = {
+    "Saved patterns (not implemented)",
+    "Presets"
+};
 
-const char* patterns[5] = {
-    "Blink  ",
+const char* loadPresetMenu[4] = {
+    "Blink",
     "Explode",
-    "Rainbow",
-    "Static ",
-    "Custom "
+    "Static",
+    "Rainbow"
 };
 
-const char* staticEnds[4] = {
-    "None       ",
-    "If sleeping",
-    "If awake   ",
-    "Both       "
-};
+int currMenu = 0;
+int selected = 0;
 
-int selectedpat, PATS = 5;
+int nbMain = 8;
+int nbSettings = 4;
+int nbInstall = 5;
+int nbInstallMode = 2;
+int nbLoad = 2;
+int nbLoadPreset = 4;
+int nbEditor = 32;
+int nbLowBat = 8;
+
+int nbCmd = nbMain;
+
+int Xtsize = 50;
+int Xbsize = 40;
+int Ysize = 29;
 
 char keybInput[7] = "";
 
@@ -98,23 +118,33 @@ char anim_smooth[] = "5f";
 char anim_loop_delay[] = "ff";
 char anim_blink_speed[] = "00";
 
-int staticend = 1;
 // DEFAULT 3DS SETTINGS :
-// - SLEEP EXIT : 0x50, 0x50, 0xFF, 0x00
+// - BOOT / WAKE UP : 0x50, 0x50, 0xFF, 0x00
 // - SPOTPASS : 0x50, 0x3C, 0xFF, 0x00
 // - STREETPASS : 0x50, 0x50, 0xFF, 0x00
 // - JOIN FRIEND GAME ??? : 0x68, 0x68, 0xFF, 0x00 (strange friend notification type but different)
 // - FRIENDS : 0x50, 0x3C, 0xFF, 0x00
-// - LOW BATTERY : not found for now :(
+// - LOW BATTERY : 0x55, 0x55, 0x55, 0x55  <- not actual settings, more like the sequence of the LED
 uint8_t ANIMDELAY = 0x2F; // 0x50
 uint8_t ANIMSMOOTH = 0x5F; // 0x3c
 uint8_t LOOPBYTE = 0xFF; // no loop
 uint8_t BLINKSPEED = 0x00; // https://www.3dbrew.org/wiki/MCURTC:SetInfoLEDPattern
+
+LowBatPat LBP;
+
+int lbpTemp[32];
+
+int selectedPreset;
+int installType;
+int installMode;
+
 bool enabled;
 
 bool debugMode = false;
 
 LED customLed;
+
+PrintConsole topscreen, bottomscreen;
 
 static SwkbdState swkbd;
 static SwkbdStatusData swkbdStatus;
@@ -182,6 +212,10 @@ int fcopy(const char* source, const char* dest) {
     return 0;
 }
 
+void printAt(int x, int y, const char* text) {
+    printf("\x1b[%d;%dH%s", y, x, text);
+}
+
 void intRGB(std::string hexCode, int *r, int *g, int *b)
 {
     // Remove the hashtag ...
@@ -200,7 +234,7 @@ void intRGB(std::string hexCode, int *r, int *g, int *b)
     LED struct has RGB patterns for 32 itterations. With this you can make an animation with the LED. (like the one MCU BRICKER does).
 */
 
-void createLED(LED* patern, std::string hexCode, bool staticEND, int selcpat)
+void createLED(LED* pattern, std::string hexCode, int selcpat)
 {
     // LED datastruct we will be returning
     int r, g, b;
@@ -221,151 +255,147 @@ void createLED(LED* patern, std::string hexCode, bool staticEND, int selcpat)
     }
     printf("Writing to RGB struct...\n");
 
-    memset(&patern->r[0], 0, 32);
-    memset(&patern->g[0], 0, 32);
-    memset(&patern->b[0], 0, 32);
+    memset(&pattern->r[0], 0, 32);
+    memset(&pattern->g[0], 0, 32);
+    memset(&pattern->b[0], 0, 32);
 
     switch(selcpat)
     {
         case 0: // Blink
             for (int i = 1; i<31; i+=10)
             {
-                memset(&patern->r[i], r, 5); 
-                memset(&patern->g[i], g, 5); 
-                memset(&patern->b[i], b, 5);
+                memset(&pattern->r[i], r, 5); 
+                memset(&pattern->g[i], g, 5); 
+                memset(&pattern->b[i], b, 5);
             }
-            patern->r[31] = r;
-            patern->g[31] = g;
-            patern->b[31] = b;
+            //pattern->r[31] = r;
+            //pattern->g[31] = g;
+            //pattern->b[31] = b;
         break;
         case 1: // Explode
             for (int i = 1; i<31; i+=10)
             {
-                patern->r[i] = r/i;
-                patern->g[i] = g/i;
-                patern->b[i] = b/i;
+                pattern->r[i] = r/i;
+                pattern->g[i] = g/i;
+                pattern->b[i] = b/i;
             }
-            patern->r[31] = r;
-            patern->g[31] = g;
-            patern->b[31] = b;
+            //pattern->r[31] = r;
+            //pattern->g[31] = g;
+            //pattern->b[31] = b;
         break;
-        case 2: // Rainbow (AKA MCU bricker lol)
-            patern->r[0] = 128;
-            patern->r[1] = 103;
-            patern->r[2] = 79;
-            patern->r[3] = 57;
-            patern->r[4] = 38;
-            patern->r[5] = 22;
-            patern->r[6] = 11;
-            patern->r[7] = 3;
-            patern->r[8] = 1;
-            patern->r[9] = 3;
-            patern->r[10] = 11;
-            patern->r[11] = 22;
-            patern->r[12] = 38;
-            patern->r[13] = 57;
-            patern->r[14] = 79;
-            patern->r[15] = 103;
-            patern->r[16] = 128;
-            patern->r[17] = 153;
-            patern->r[18] = 177;
-            patern->r[19] = 199;
-            patern->r[20] = 218;
-            patern->r[21] = 234;
-            patern->r[22] = 245;
-            patern->r[23] = 253;
-            patern->r[24] = 255;
-            patern->r[25] = 253;
-            patern->r[26] = 245;
-            patern->r[27] = 234;
-            patern->r[28] = 218;
-            patern->r[29] = 199;
-            patern->r[30] = 177;
-            patern->r[31] = r;
-            patern->g[0] = 238;
-            patern->g[1] = 248;
-            patern->g[2] = 254;
-            patern->g[3] = 255;
-            patern->g[4] = 251;
-            patern->g[5] = 242;
-            patern->g[6] = 229;
-            patern->g[7] = 212;
-            patern->g[8] = 192;
-            patern->g[9] = 169;
-            patern->g[10] = 145;
-            patern->g[11] = 120;
-            patern->g[12] = 95;
-            patern->g[13] = 72;
-            patern->g[14] = 51;
-            patern->g[15] = 33;
-            patern->g[16] = 18;
-            patern->g[17] = 8;
-            patern->g[18] = 2;
-            patern->g[19] = 1;
-            patern->g[20] = 5;
-            patern->g[21] = 14;
-            patern->g[22] = 27;
-            patern->g[23] = 44;
-            patern->g[24] = 65;
-            patern->g[25] = 87;
-            patern->g[26] = 111;
-            patern->g[27] = 136;
-            patern->g[28] = 161;
-            patern->g[29] = 184;
-            patern->g[30] = 205;
-            patern->g[31] = g;
-            patern->b[0] = 18;
-            patern->b[1] = 33;
-            patern->b[2] = 51;
-            patern->b[3] = 72;
-            patern->b[4] = 95;
-            patern->b[5] = 120;
-            patern->b[6] = 145;
-            patern->b[7] = 169;
-            patern->b[8] = 192;
-            patern->b[9] = 212;
-            patern->b[10] = 229;
-            patern->b[11] = 242;
-            patern->b[12] = 251;
-            patern->b[13] = 255;
-            patern->b[14] = 254;
-            patern->b[15] = 248;
-            patern->b[16] = 238;
-            patern->b[17] = 223;
-            patern->b[18] = 205;
-            patern->b[19] = 184;
-            patern->b[20] = 161;
-            patern->b[21] = 136;
-            patern->b[22] = 111;
-            patern->b[23] = 87;
-            patern->b[24] = 64;
-            patern->b[25] = 44;
-            patern->b[26] = 27;
-            patern->b[27] = 14;
-            patern->b[28] = 5;
-            patern->b[29] = 1;
-            patern->b[30] = 2;
-            patern->b[31] = b;
-        break;
-        case 3:
-            memset(&patern->r[0], r, 32); 
-            memset(&patern->g[0], g, 32); 
-            memset(&patern->b[0], b, 32);
-        break;
-        case 4:
-            for (int i = 0; i < 32; i++) {
-                patern->r[i] = customLed.r[i];
-                patern->g[i] = customLed.g[i];
-                patern->b[i] = customLed.b[i];
-            }
-        break;
-    }
 
-    if (!staticEND)
-    {
-        patern->r[31] = 0;
-        patern->g[31] = 0;
-        patern->b[31] = 0;
+        case 2: // Static
+            memset(&pattern->r[0], r, 31); 
+            memset(&pattern->g[0], g, 31); 
+            memset(&pattern->b[0], b, 31);
+        break;
+
+        case 3: // Rainbow (AKA MCU bricker lol)
+            pattern->r[0] = 128;
+            pattern->r[1] = 103;
+            pattern->r[2] = 79;
+            pattern->r[3] = 57;
+            pattern->r[4] = 38;
+            pattern->r[5] = 22;
+            pattern->r[6] = 11;
+            pattern->r[7] = 3;
+            pattern->r[8] = 1;
+            pattern->r[9] = 3;
+            pattern->r[10] = 11;
+            pattern->r[11] = 22;
+            pattern->r[12] = 38;
+            pattern->r[13] = 57;
+            pattern->r[14] = 79;
+            pattern->r[15] = 103;
+            pattern->r[16] = 128;
+            pattern->r[17] = 153;
+            pattern->r[18] = 177;
+            pattern->r[19] = 199;
+            pattern->r[20] = 218;
+            pattern->r[21] = 234;
+            pattern->r[22] = 245;
+            pattern->r[23] = 253;
+            pattern->r[24] = 255;
+            pattern->r[25] = 253;
+            pattern->r[26] = 245;
+            pattern->r[27] = 234;
+            pattern->r[28] = 218;
+            pattern->r[29] = 199;
+            pattern->r[30] = 177;
+            //pattern->r[31] = r;
+            pattern->g[0] = 238;
+            pattern->g[1] = 248;
+            pattern->g[2] = 254;
+            pattern->g[3] = 255;
+            pattern->g[4] = 251;
+            pattern->g[5] = 242;
+            pattern->g[6] = 229;
+            pattern->g[7] = 212;
+            pattern->g[8] = 192;
+            pattern->g[9] = 169;
+            pattern->g[10] = 145;
+            pattern->g[11] = 120;
+            pattern->g[12] = 95;
+            pattern->g[13] = 72;
+            pattern->g[14] = 51;
+            pattern->g[15] = 33;
+            pattern->g[16] = 18;
+            pattern->g[17] = 8;
+            pattern->g[18] = 2;
+            pattern->g[19] = 1;
+            pattern->g[20] = 5;
+            pattern->g[21] = 14;
+            pattern->g[22] = 27;
+            pattern->g[23] = 44;
+            pattern->g[24] = 65;
+            pattern->g[25] = 87;
+            pattern->g[26] = 111;
+            pattern->g[27] = 136;
+            pattern->g[28] = 161;
+            pattern->g[29] = 184;
+            pattern->g[30] = 205;
+            //pattern->g[31] = g;
+            pattern->b[0] = 18;
+            pattern->b[1] = 33;
+            pattern->b[2] = 51;
+            pattern->b[3] = 72;
+            pattern->b[4] = 95;
+            pattern->b[5] = 120;
+            pattern->b[6] = 145;
+            pattern->b[7] = 169;
+            pattern->b[8] = 192;
+            pattern->b[9] = 212;
+            pattern->b[10] = 229;
+            pattern->b[11] = 242;
+            pattern->b[12] = 251;
+            pattern->b[13] = 255;
+            pattern->b[14] = 254;
+            pattern->b[15] = 248;
+            pattern->b[16] = 238;
+            pattern->b[17] = 223;
+            pattern->b[18] = 205;
+            pattern->b[19] = 184;
+            pattern->b[20] = 161;
+            pattern->b[21] = 136;
+            pattern->b[22] = 111;
+            pattern->b[23] = 87;
+            pattern->b[24] = 64;
+            pattern->b[25] = 44;
+            pattern->b[26] = 27;
+            pattern->b[27] = 14;
+            pattern->b[28] = 5;
+            pattern->b[29] = 1;
+            pattern->b[30] = 2;
+            //pattern->b[31] = b;
+        break;
+
+        case 4: // Custom
+            for (int i = 0; i < 32; i++) {
+                pattern->r[i] = customLed.r[i];
+                pattern->g[i] = customLed.g[i];
+                pattern->b[i] = customLed.b[i];
+            }
+        break;
     }
 }
 
@@ -383,7 +413,7 @@ void writeDefault(FILE* file) {
 
     LED_MCU temp;
 
-    // Sleep exit LED
+    // Boot / wake up LED
     temp.ani[0] = 0x50;
     temp.ani[1] = 0x50;
     temp.ani[2] = 0xFF;
@@ -563,9 +593,9 @@ void writeDefault(FILE* file) {
     fwrite("EOF", 3, 1, file);
 }
 
-void writepatch(LED note, int selectedType = 0)
+void writepatch(LED note, int selectedType = 0, int selectedStatus = 0)
 {
-    printf("Making directory...\n");
+    printf("Making directories...\n");
     mkdir("/CtrRGBPAT2", 0777);
     mkdir("/luma", 0777);
     mkdir("/luma/titles", 0777);
@@ -603,52 +633,33 @@ void writepatch(LED note, int selectedType = 0)
             }
         }
         
-        LED notifAWAKE;
-        LED notifSLEEP;
-        createLED(&notifAWAKE, std::string(color_HEX), false, selectedpat);
-        createLED(&notifSLEEP, std::string(color_HEX), true, selectedpat);
+        LED notif;
+        createLED(&notif, std::string(color_HEX), nbLoadPreset); // Will always be the custom pattern
         
         // https://zerosoft.zophar.net/ips.php for documentation of the IPS file format
 
         // PATCH
 
-        // SLEEP EXIT : 0x00A0C8 real address is 0x10A0C8
+        // Boot / wake up : 0x00A0C8 real address is 0x10A0C8
         // SPOTPASS : 0x00A190 real address is 0x10A190
         // STREETPASS : 0x00A258 real address is 0x10A258
         // JOIN FRIEND GAME ??? : 0x00A320 real address is 0x10A320
         // FRIENDS : 0x00A3E8 real address is 0x10A3E8
-        // LOW BATTERY : not found for now :(
+        // LOW BATTERY : not located in the same place
 
         // Seek to the correct position in the patch
-        fseek(file, 5 + (3 + 2) + 200*selectedType, 0);
+        fseek(file, 5 + (3 + 2) + 200*selectedType + 100*selectedStatus, 0);
 
-        // DATA (200 BYTES)
+        // DATA (100 BYTES)
 
-        // This part applies for when the console is in sleep mode (to have the LED holding the color)
+        // This part applies the animation for when the console is either sleeping (0) or awake (1) depending on selectedStatus (0 or 1)
         // 4 BYTES
         fputc(ANIMDELAY, file);
         fputc(ANIMSMOOTH, file);
         fputc(LOOPBYTE, file);
         fputc(BLINKSPEED, file);
         // 96 BYTES
-        if (staticend == 1 || staticend == 3) {
-            fwrite(&notifSLEEP, sizeof(notifSLEEP), 1, file);
-        } else {
-            fwrite(&notifAWAKE, sizeof(notifAWAKE), 1, file);
-        }
-
-        // This part applies for when the console is awake (to avoid having the LED holding the color)
-        // 4 BYTES
-        fputc(ANIMDELAY, file);
-        fputc(ANIMSMOOTH, file);
-        fputc(LOOPBYTE, file);
-        fputc(BLINKSPEED, file);
-        // 96 BYTES
-        if (staticend == 2 || staticend == 3) {
-            fwrite(&notifSLEEP, sizeof(notifSLEEP), 1, file);
-        } else {
-            fwrite(&notifAWAKE, sizeof(notifAWAKE), 1, file);
-        }
+        fwrite(&notif, sizeof(notif), 1, file);
 
         // END OF PATCH
 
@@ -697,23 +708,56 @@ void ptmsysmSetInfoLedPattern(LED_MCU pattern)
     svcCloseHandle(serviceHandle);
 }
 
-void test_LED(LED patern)
+void ptmsysmSetBatteryEmptyLedPattern(LowBatPat pattern)
+{
+    Handle serviceHandle = 0;
+    Result result = srvGetServiceHandle(&serviceHandle, "ptm:sysm");
+    if (result != 0) 
+    {
+        printf("Failed to get service ptm:sysm :(\n");
+        return;
+    }
+
+    u32* ipc = getThreadCommandBuffer();
+    ipc[0] = 0x8040040;
+    memcpy(&ipc[1], &pattern, 0x4);
+    svcSendSyncRequest(serviceHandle);
+    svcCloseHandle(serviceHandle);
+}
+
+void mcuhwcSetPowerLedPattern(int state) {
+    Handle serviceHandle = 0;
+    Result result = srvGetServiceHandle(&serviceHandle, "mcu::HWC");
+    if (result != 0) 
+    {
+        printf("Failed to get service mcu::HWC :(\n");
+        return;
+    }
+
+    u32* ipc = getThreadCommandBuffer();
+    ipc[0] = 0x60040;
+    ipc[1] = state;
+    svcSendSyncRequest(serviceHandle);
+    svcCloseHandle(serviceHandle);
+}
+
+void test_LED(LED pattern)
 {
     LED_MCU MCU_PAT;
 
     for (int i = 0; i<32; i++)
     {
-        MCU_PAT.r[i] = patern.r[i];
-        MCU_PAT.g[i] = patern.g[i];
-        MCU_PAT.b[i] = patern.b[i];
+        MCU_PAT.r[i] = pattern.r[i];
+        MCU_PAT.g[i] = pattern.g[i];
+        MCU_PAT.b[i] = pattern.b[i];
         if (debugMode) {
-            printf("(%u, %u, %u)\n", patern.r[i], patern.g[i], patern.b[i]);
+            printf("(%u, %u, %u)\n", pattern.r[i], pattern.g[i], pattern.b[i]);
         }
     }
 
     if (debugMode) {
-        printf("First color = (%u, %u, %u)\n", patern.r[0], patern.g[0], patern.b[0]);
-        printf("Last color = (%u, %u, %u)\n", patern.r[31], patern.g[31], patern.b[31]);
+        printf("First color = (%u, %u, %u)\n", pattern.r[0], pattern.g[0], pattern.b[0]);
+        printf("Last color = (%u, %u, %u)\n", pattern.r[31], pattern.g[31], pattern.b[31]);
     }
 
     MCU_PAT.ani[0] = ANIMDELAY;
@@ -723,7 +767,14 @@ void test_LED(LED patern)
 
     printf("Testing custom pattern...\n");
 
-    ptmsysmSetInfoLedPattern(MCU_PAT);
+    if (debugMode) {
+        LBP.seq[0] = ANIMDELAY;
+        LBP.seq[1] = ANIMSMOOTH;
+        LBP.seq[2] = LOOPBYTE;
+        LBP.seq[3] = BLINKSPEED;
+        ptmsysmSetBatteryEmptyLedPattern(LBP);
+    }
+    else ptmsysmSetInfoLedPattern(MCU_PAT);
 }
 
 // when done we want LUMA to reload so it can patch with our ips patches
@@ -755,73 +806,144 @@ void listMenu(int dispOffset)
     int colg; //= (int)strtol(color_HEX.substr(2, 2), NULL, 16);
     int colb; //= (int)strtol(color_HEX.substr(4, 2), NULL, 16);
     intRGB(std::string(color_HEX), &colr, &colg, &colb);
+    consoleSelect(&topscreen);
     iprintf("\x1b[2J");
     printf("\x1b[0;0H\x1b[30;0m");
-    printf("===== Ctr\e[31mR\e[32mG\e[34mB\e[0mPAT2 ===== %s\n", debugMode ? "[DEBUG MODE ACTIVATED]" : " ");
+    printf("=================== Ctr\e[31mR\e[32mG\e[34mB\e[0mPAT2 ======%s======\n", debugMode ? "[DEBUG]" : "=======");
     switch (currMenu) {
         case 0:
             for (int i = 0; i < nbMain; i++) 
             {
-                if (i == 0 && selectedpat == 4) {
-                    if (selected == 0)
-                        printf("\x1b[47;30m* Set custom notification pattern\x1b[30;0m\n");
-                    else
-                        printf("\x1b[40;33m* Set custom notification pattern\x1b[30;0m\n");
-                } else {
-                    if (i == selected)
-                        printf("\x1b[47;30m* %s\x1b[30;0m\n", menu[i]);
-                    else
-                        printf("\x1b[30;0m* %s\n", menu[i]);
-                }
+                printf("\x1b[%sm* %s%s\n", (i == selected ? "47;30" : "30;0"), mainMenu[i], (i == selected ? "\x1b[30;0m" : ""));
             }
-            printf("======================\n");
-            printf("COLOR  : %s \e[48;2;%d;%d;%dm  \e[0m\n", color_HEX, colr, colg, colb);
-            printf("PATTERN : %s\n", patterns[selectedpat]);
-            printf("ANIMATION DELAY : %X\n", ANIMDELAY);
-            printf("ANIMATION SMOOTHNESS : %X\n", ANIMSMOOTH);
-            printf("LOOP DELAY : %X\n", LOOPBYTE);
-            printf("STATIC END : %s\n", staticEnds[staticend]);
-            printf("ENABLED : %s\e[0m\n", (enabled ? "\e[32mYES" : "\e[31mNO"));
-            printf("======================\n");
         break;
+
         case 1:
-            printf("Select where to install the custom pattern :\n");
+            printf("\e[40;36m(L) to copy, (R) to paste : \e[0m%s\n\n", color_copy);
+            for (int i = dispOffset; i < dispOffset+25; i++) {
+                printf("\x1b[%sm%s%d: %s%X%s%X%s%X\e[0m \e[48;2;%d;%d;%dm \e[0m %s\n", // RRR GGG BBB ?
+                    (i == selected ? "47;30" : "37;40"),
+                    (i < 9 ? "0" : ""), i+1,
+                    (customLed.r[i] < 16 ? "0" : ""), customLed.r[i],
+                    (customLed.g[i] < 16 ? "0" : ""), customLed.g[i],
+                    (customLed.b[i] < 16 ? "0" : ""), customLed.b[i],
+                    customLed.r[i], customLed.g[i], customLed.b[i],
+                    (i == 31 ? "(will hold the color if no looping)" : (i == 0 ? "(triggers only after loop)" : ""))
+                );
+            }
+        break;
+
+        case 2:
+            printf("Animation settings\n\n");
+            for (int i = 0; i < nbSettings; i++) 
+            {
+                printf("\x1b[%sm* %s%s\n", (i == selected ? "47;30" : "30;0"), settingsMenu[i], (i == selected ? "\x1b[30;0m" : ""));
+            }
+            printf("\n======================\n");
+            printf("(B) to go back\n");
+        break;
+
+        case 3:
+            printf("Install animation - (1/2) Select animation recipient :\n\n");
             for (int i = 0; i < nbInstall; i++) 
             {
-                if (i == selected)
-                    printf("\x1b[47;30m* %s\x1b[30;0m\n", installMenu[i]);
-                else
-                    printf("\x1b[30;0m* %s\n", installMenu[i]);
+                printf("\x1b[%sm* %s%s\n", (i == selected ? "47;30" : "30;0"), installMenu[i], (i == selected ? "\x1b[30;0m" : ""));
             }
-            printf("======================\n");
+            printf("\n======================\n");
             printf("(B) to cancel\n");
         break;
-        case 2:
-            printf("\e[40;36m(L) to copy, (R) to paste : \e[0m%s\n", color_copy);
-            for (int i = dispOffset; i < dispOffset+27; i++) {
-                if (i == selected)
-                    printf("\x1b[47;30m%s%d: %s%X%s%X%s%X \e[48;2;%d;%d;%dm \e[0m%s\x1b[30;0m\n", (i < 9 ? "0" : ""), i+1, (customLed.r[i] < 16 ? "0" : ""), customLed.r[i], (customLed.g[i] < 16 ? "0" : ""), customLed.g[i], (customLed.b[i] < 16 ? "0" : ""), customLed.b[i], customLed.r[i], customLed.g[i], customLed.b[i], (i == 31 ? "(may be 0 depending on static ending)" : (i == 0 ? "(triggers only after loop)" : "")));
-                else
-                    printf("\x1b[37;40m%s%d: %s%X%s%X%s%X \e[48;2;%d;%d;%dm \e[0m%s\n", (i < 9 ? "0" : ""), i+1, (customLed.r[i] < 16 ? "0" : ""), customLed.r[i], (customLed.g[i] < 16 ? "0" : ""), customLed.g[i], (customLed.b[i] < 16 ? "0" : ""), customLed.b[i], customLed.r[i], customLed.g[i], customLed.b[i], (i == 31 ? "(may be 0 depending on static ending)" : (i == 0 ? "(triggers only after loop)" : "")));
+
+        case 4:
+            printf("Install animation - (2/2) When should it play ?\n\n");
+            for (int i = 0; i < nbInstallMode; i++) 
+            {
+                printf("\x1b[%sm* %s%s%s%s%s\n",
+                    (i == selected ? "47;30" : "30;0"),
+                    installModeMenu[i],
+                    (installType == 0 && i == 1 ? " (unused here)" : ""),
+                    (installType == 3 ? " (unused ?)" : ""),
+                    (installType == 4 && i == 0 ? " (impossible to get ?)" : ""),
+                    (i == selected ? "\x1b[30;0m" : "")
+                );
+            
             }
+            printf("\n======================\n");
+            printf("(B) to cancel\n");
+        break;
+
+        case 5:
+            printf("Load a pattern - Select the source :\n\n");
+            for (int i = 0; i < nbLoad; i++) 
+            {
+                printf("\x1b[%sm* %s%s\n", (i == selected ? "47;30" : "30;0"), loadMenu[i], (i == selected ? "\x1b[30;0m" : ""));
+            }
+            printf("\n======================\n");
+            printf("(B) to cancel\n");
+        break;
+
+        case 6:
+            printf("Select the pattern to load :\n");
+            printf("\e[33m! Overrides the current pattern in the editor !\e[0m\n\n");
+        break;
+
+        case 7:
+            printf("Load a pattern - Select the preset to load :\n");
+            printf("\e[33m! Overrides the current pattern in the editor !\e[0m\n\n");
+            for (int i = 0; i < nbLoadPreset; i++) 
+            {
+                printf("\x1b[%sm* %s%s\n", (i == selected ? "47;30" : "30;0"), loadPresetMenu[i], (i == selected ? "\x1b[30;0m" : ""));
+            }
+            printf("\n======================\n");
+            printf("(B) to cancel\n");
+        break;
+
+        case 8:
+            printf("Low battery settings\n\n");
+            printf("Not implemented yet\n");
+            /*
+            printf("\e[40;36m(A) to toggle on/off\e[0m%s\n\n", color_copy);
+            for (int i = dispOffset; i < dispOffset+25; i++) {
+                printf("\x1b[%sm%d: %d\e[0m \e[%dm \e[0m\n", // RRR GGG BBB ?
+                    (i == selected ? "47;30" : "37;40"),
+                    i+1, lbpTemp[i],
+                    (lbpTemp[i] == 1 ? "41" : "0")
+                );
+            */
+            printf("\n======================\n");
+            printf("(B) to go back\n");
         break;
         default:
-            printf("err\n");
+            //printf("err\n");
         break;
     }
+    consoleSelect(&bottomscreen);
+    iprintf("\x1b[2J");
+    printf("\x1b[0;0H\x1b[30;0m");
+    printf("======================\n\n");
+    printf("ANIMATION DELAY : %02X\n", ANIMDELAY);
+    printf("ANIMATION SMOOTHNESS : %02X\n", ANIMSMOOTH);
+    printf("LOOP DELAY : %02X\n", LOOPBYTE);
+    printf("BLINK SPEED : %02X\n", BLINKSPEED);
+    printf("ENABLED : %s\e[0m\n", (enabled ? "\e[32mYES" : "\e[31mNO"));
+    printf("\n======================\n\n");
+    consoleSelect(&topscreen);
 }
 
-// 32: 000000   (may be 0 depending on static ending)
 // This is not the final version, i will include more
 
 int main(int argc, char **argv) 
 {
     gfxInitDefault();
     aptSetHomeAllowed(false);
-	
+
     // Init console for text output
-    consoleInit(GFX_TOP, NULL);
+    consoleInit(GFX_TOP, &topscreen);
+    consoleInit(GFX_BOTTOM, &bottomscreen);
+
+    consoleSelect(&topscreen);
     
+    for (int i = 0; i < 4; i++) { LBP.seq[i] = 0x55; }
+
     int r, g, b;
 
     for (int i = 0; i < 32; i++) {
@@ -835,10 +957,13 @@ int main(int argc, char **argv)
     selected = 0;
     int selOffset = 0;
     bool infoRead = false;  
-    printf("Welcome to Ctr\e[31mR\e[32mG\e[34mB\e[0mPAT2 !\n\nThis is a tool allowing you to change the color\nand pattern of the LED when you receive\na notification.\n\nYou can select for which type of notifications\nyou want it to apply from the install menu.\n\nThis is not the final version, i will include\nmore things in future updates.\n\n\nControls :\n- Arrow UP and DOWN to move,\n- (A) to confirm/toggle\n- (B) to go back to the main menu\n- START to reboot\n\n\e[32mPress (A) to continue\e[0m\t\t\e[38;2;255;165;0mVersion 2.3\e[0m\n");
+    printf("Welcome to Ctr\e[31mR\e[32mG\e[34mB\e[0mPAT2 !\n\nThis is a tool allowing you to change the color\nand pattern of the LED when you receive\na notification.\n\nYou can select for which type of notifications\nyou want it to apply from the install menu.\n\nThis is not the final version, i will include\nmore things in future updates.\n\n\nControls :\n- Arrow UP and DOWN to move,\n- (A) to confirm/toggle\n- (B) to go back to the main menu\n- START to reboot\n\n\e[32mPress (A) to continue\e[0m\t\t\e[38;2;255;165;0mVersion 2.4\e[0m\n");
     //listMenu();
 
-    while (aptMainLoop()) 
+    int plstate = 0;
+
+
+    while (aptMainLoop())
     {
         hidScanInput();
 
@@ -847,10 +972,12 @@ int main(int argc, char **argv)
         if (aptCheckHomePressRejected()) {
             infoRead = true;
             listMenu(selOffset);
+            //consoleSelect(&bottomscreen);
             //printf("Cannot return to the HOME Menu. START to reboot\n");
-            printf("\nPress HOME again to exit, or START to reboot\n");
-            printf("\e[38;2;255;165;0mYour changes wont be applied until next reboot\e[0m\n");
+            printf("\n\nPress HOME again to exit, or START to reboot\n");
+            printf("\e[33mYour changes wont be applied until next reboot\e[0m\n");
             aptSetHomeAllowed(true);
+            //consoleSelect(&topscreen);
         }
 
         if (kDown) {
@@ -859,18 +986,26 @@ int main(int argc, char **argv)
 
         if (kDown & KEY_START)
         {
+            consoleSelect(&bottomscreen);
             printf("Rebooting the console...\n");
             PTM_RebootAsync();
             //break; // needs changes, crashes the console
         }
 
         if (kDown & KEY_Y) {
-            debugMode = !debugMode;
+            //debugMode = !debugMode;
             infoRead = true;
+            if (currMenu != 0) {
+                currMenu = 0;
+                nbCmd = nbMain;
+                selected = 0;
+                selOffset = 0;
+            }
             listMenu(selOffset);
         }
 
         if ((kDown & KEY_X) && debugMode) {
+            consoleSelect(&bottomscreen);
             if (access("/CtrRGBPAT2/0004013000003502.ips", F_OK) != -1) {
                 FILE *file = fopen("/CtrRGBPAT2/0004013000003502.ips", "wb+");
                 writeDefault(file);
@@ -881,12 +1016,13 @@ int main(int argc, char **argv)
                 listMenu(selOffset);
                 printf("No previous configuration detected\n");
             }
+            consoleSelect(&topscreen);
         }
 
         if (kDown & KEY_DDOWN)
         {
             selected=selected+1;
-            if (selected-selOffset > 26)
+            if (selected-selOffset > 24)
                 selOffset = selOffset+1;
             if (selected>nbCmd-1) {
                 selected = 0;
@@ -903,18 +1039,18 @@ int main(int argc, char **argv)
                 selOffset = selOffset-1;
             if (selected<0) {
                 selected = nbCmd-1;
-                selOffset = nbCmd-27;
+                selOffset = nbCmd-25;
             }
             infoRead = true;
             listMenu(selOffset);
         }
 
-        if ((kDown & KEY_L) && currMenu == 2) {
+        if ((kDown & KEY_L) && currMenu == 1) {
             sprintf((char *)color_copy, "%s%X%s%X%s%X", (customLed.r[selected] < 16 ? "0" : ""), customLed.r[selected], (customLed.g[selected] < 16 ? "0" : ""), customLed.g[selected], (customLed.b[selected] < 16 ? "0" : ""), customLed.b[selected]);
             listMenu(selOffset);
         }
 
-        if ((kDown & KEY_R) && currMenu == 2) {
+        if ((kDown & KEY_R) && currMenu == 1) {
             intRGB(std::string(color_copy), &r, &g, &b);
             customLed.r[selected] = r;
             customLed.g[selected] = g;
@@ -931,73 +1067,99 @@ int main(int argc, char **argv)
             listMenu(selOffset);
         }
 
+        if ((kDown & KEY_L) && debugMode && currMenu == 0)
+        {
+            consoleSelect(&bottomscreen);
+            plstate--;
+            if (plstate < 0) plstate = 6;
+            listMenu(currMenu);
+            printf("-1 to power LED state = %d\n", plstate);
+            printf("Sending sync to mcu::HWC...\n");
+            mcuhwcSetPowerLedPattern(plstate);
+            consoleSelect(&topscreen);
+        }
+
+        if ((kDown & KEY_R) && debugMode && currMenu == 0)
+        {
+            consoleSelect(&bottomscreen);
+            plstate++;
+            plstate = plstate%7;
+            listMenu(currMenu);
+            printf("+1 to power LED state = %d\n", plstate);
+            printf("Sending sync to mcu::HWC...\n");
+            mcuhwcSetPowerLedPattern(plstate);
+            consoleSelect(&topscreen);
+        }
+
         if (kDown & KEY_A)
         {
             if (infoRead) {
                 switch(currMenu) {
-                    case 0:
+                    case 0: // Main Menu
                         switch(selected)
                         {
                             case 0:
-                                if (selectedpat == 4) {
-                                    currMenu = 2;
-                                    nbCmd = nbCustom;
-                                    selected = 0;
-                                    selOffset = 0;
-                                    listMenu(selOffset);
-                                } else {
-                                    hexaInput((char *)color_HEX, 6, "LED RGB color (in HEX)");
-                                    listMenu(selOffset);
-                                    if (debugMode) {
-                                        for (int i = 0; i < 6; i++) {
-                                            printf("Char %d is %d\n", i, (int)keybInput[i]);
-                                        }
+                                currMenu = 1;
+                                nbCmd = nbEditor;
+                                selected = 0;
+                                selOffset = 0;
+                                listMenu(selOffset);
+                                /*
+                                hexaInput((char *)color_HEX, 6, "LED RGB color (in HEX)");
+                                listMenu(selOffset);
+                                if (debugMode) {
+                                    for (int i = 0; i < 6; i++) {
+                                        printf("Char %d is %d\n", i, (int)keybInput[i]);
                                     }
                                 }
+                                */
                             break;
+
                             case 1:
+                                currMenu = 2;
+                                nbCmd = nbSettings;
+                                selected = 0;
+                                selOffset = 0;
+                                listMenu(selOffset);
+                                /*
                                 selectedpat=selectedpat+1;
                                 if (selectedpat>PATS-1)
                                     selectedpat = 0;
                                 listMenu(selOffset);
+                                */
                             break;
+
                             case 2:
-                                hexaInput((char *)anim_speed, 2, "Animation speed (delay)");
-                                ANIMDELAY = (uint8_t)strtol(anim_speed, NULL, 16);
-                                listMenu(selOffset);
-                            break;
-                            case 3:
-                                hexaInput((char *)anim_smooth, 2, "Animation smoothness");
-                                ANIMSMOOTH = (uint8_t)strtol(anim_smooth, NULL, 16);
-                                listMenu(selOffset);
-                            break;
-                            case 4:
-                                hexaInput((char *)anim_loop_delay, 2, "Animation loop delay");
-                                LOOPBYTE = (uint8_t)strtol(anim_loop_delay, NULL, 16);
-                                listMenu(selOffset);
-                            break;
-                            case 5:
-                                staticend = (staticend + 1) % 4;
-                                listMenu(selOffset);
-                            break;
-                            case 6:
                                 LED test_notification;
                                 listMenu(selOffset);
-                                createLED(&test_notification, std::string(color_HEX), (staticend > 1), selectedpat);
+                                consoleSelect(&bottomscreen);
+                                createLED(&test_notification, std::string(color_HEX), nbLoadPreset); // Will always be the custom pattern
                                 test_LED(test_notification);
+                                consoleSelect(&topscreen);
                             break;
-                            case 7:
+
+                            case 3:
                                 //LED notification;
                                 //createLED(&notification, std::string(color_HEX), staticend, selectedpat);
                                 //enabled = true;
-                                currMenu = 1;
+                                currMenu = 3;
                                 nbCmd = nbInstall;
                                 selected = 0;
                                 selOffset = 0;
                                 listMenu(selOffset);
                                 //writepatch(notification);
                             break;
-                            case 8:
+
+                            case 4:
+                                currMenu = 5;
+                                nbCmd = nbLoad;
+                                selected = 0;
+                                selOffset = 0;
+                                listMenu(selOffset);
+                            break;
+
+                            case 5:
+                                consoleSelect(&bottomscreen);
                                 printf("Toggling state, please wait...\n");
                                 // copyFile code and stuff
                                 mkdir("/CtrRGBPAT2", 0777);
@@ -1014,29 +1176,36 @@ int main(int argc, char **argv)
                                     break;
                                 }
                                 enabled = !enabled;
+                                consoleSelect(&topscreen);
                                 listMenu(selOffset);
+                                consoleSelect(&bottomscreen);
                                 printf("Patch is now %s\n", (enabled ? "enabled" : "disabled"));
+                                consoleSelect(&topscreen);
                             break;
-                            case 9:
+
+                            case 6:
+                                currMenu = 8;
+                                nbCmd = nbLowBat;
+                                selected = 0;
+                                selOffset = 0;
+                                listMenu(selOffset);
+                            break;
+
+                            case 7:
                                 ptmSysmInit();
                                 PTMSYSM_ShutdownAsync(0);
                                 ptmSysmExit();
                             break;
+
                             default:
+                                consoleSelect(&bottomscreen);
                                 printf("err\n");
+                                consoleSelect(&topscreen);
                             break;
                         }
                     break;
-                    case 1:
-                        LED notification;
-                        //createLED(&notification, std::string(color_HEX), staticend, selectedpat);
-                        enabled = true;
-                        currMenu = 0;
-                        nbCmd = nbMain;
-                        listMenu(selOffset);
-                        writepatch(notification, selected);
-                    break;
-                    case 2:
+
+                    case 1: // Editor
                     {
                         char hexCustom[10]; // 10 to avoid gcc compiling warnings
                         r = customLed.r[selected];
@@ -1051,6 +1220,110 @@ int main(int argc, char **argv)
                         listMenu(selOffset);
                     break;
                     }
+
+                    case 2: // Settings
+                        switch(selected)
+                        {
+                            case 0:
+                                hexaInput((char *)anim_speed, 2, "Animation speed (delay)");
+                                ANIMDELAY = (uint8_t)strtol(anim_speed, NULL, 16);
+                                listMenu(selOffset);
+                            break;
+                            case 1:
+                                hexaInput((char *)anim_smooth, 2, "Animation smoothness");
+                                ANIMSMOOTH = (uint8_t)strtol(anim_smooth, NULL, 16);
+                                listMenu(selOffset);
+                            break;
+                            case 2:
+                                hexaInput((char *)anim_loop_delay, 2, "Animation loop delay");
+                                LOOPBYTE = (uint8_t)strtol(anim_loop_delay, NULL, 16);
+                                listMenu(selOffset);
+                            break;
+                            case 3:
+                                hexaInput((char *)anim_blink_speed, 2, "Animation blink speed");
+                                BLINKSPEED = (uint8_t)strtol(anim_blink_speed, NULL, 16);
+                                listMenu(selOffset);
+                            break;
+                            default:
+                                printf("err\n");
+                            break;
+                        }
+                    break;
+
+                    case 3: // Install
+                        installType = selected;
+                        currMenu = 4;
+                        nbCmd = nbInstallMode;
+                        selected = 0;
+                        selOffset = 0;
+                        listMenu(selOffset);
+                    break;
+
+                    case 4: // Install mode
+                        LED notification;
+                        //createLED(&notification, std::string(color_HEX), staticend, selectedpat);
+                        enabled = true;
+                        installMode = selected;
+                        currMenu = 0;
+                        nbCmd = nbMain;
+                        listMenu(selOffset);
+                        consoleSelect(&bottomscreen);
+                        writepatch(notification, installType, installMode);
+                        consoleSelect(&topscreen);
+                    break;
+
+                    case 5: // Loading
+                        switch(selected)
+                        {
+                            case 0:
+                                //currMenu = 6;
+                                //nbCmd = nbLoad;
+                                //selected = 0;
+                                //selOffset = 0;
+                                listMenu(selOffset);
+                            break;
+                            case 1:
+                                currMenu = 7;
+                                nbCmd = nbLoadPreset;
+                                selected = 0;
+                                selOffset = 0;
+                                listMenu(selOffset);
+                            break;
+                            default:
+                                printf("err\n");
+                            break;
+                        }
+                    break;
+
+                    case 7: // Load preset
+                        if (selected != nbLoadPreset-1) {
+                            currMenu = 999;
+                            listMenu(selOffset);
+                            printf("Enter the base color for the preset :\n");
+                            hexaInput((char *)color_HEX, 6, "LED RGB color (in HEX)");
+                        }
+                        selectedPreset = selected;
+                        currMenu = 0;
+                        nbCmd = nbMain;
+                        selected = 0;
+                        selOffset = 0;
+                        listMenu(selOffset);
+                        consoleSelect(&bottomscreen);
+                        printf("Loading preset '%s'...\n", loadPresetMenu[selectedPreset]);
+                        LED preset;
+                        createLED(&preset, std::string(color_HEX), selectedPreset);
+                        for (int i = 0; i < 32; i++) {
+                            customLed.r[i] = preset.r[i];
+                            customLed.g[i] = preset.g[i];
+                            customLed.b[i] = preset.b[i];
+                        }
+                        printf("Preset loaded\n");
+                        consoleSelect(&topscreen);
+
+                    case 8: // Low battery settings
+                        
+                    break;
+
                     default:
                         printf("err\n");
                     break;
