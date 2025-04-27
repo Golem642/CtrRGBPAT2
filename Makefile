@@ -183,13 +183,13 @@ endif
 # Main Targets
 #---------------------------------------------------------------------------------
 .PHONY: all 3dsx cia elf 3ds citra spunch 3dsxlink
-all: $(OUTPUT_FILE).zip $(OUTPUT_FILE).3ds $(OUTPUT_FILE).cia
+all: $(OUTPUT_FILE).3ds $(OUTPUT_FILE).3dsx $(OUTPUT_FILE).cia
 
 banner.bnr: $(BANNER_IMAGE_FILE) $(BANNER_AUDIO_FILE)
 	@$(BANNERTOOL) makebanner $(BANNER_IMAGE_ARG) $(BANNER_AUDIO_ARG) -o banner.bnr > /dev/null
 
 icon.icn: $(TOPDIR)/$(ICON)
-	@$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_TITLE)" -p "$(APP_AUTHOR)" -i $(TOPDIR)/$(ICON) -o icon.icn > /dev/null
+	@$(BANNERTOOL) makesmdh -s "$(APP_TITLE)" -l "$(APP_DESCRIPTION)" -p "$(APP_AUTHOR)" -i $(TOPDIR)/$(ICON) -o icon.icn > /dev/null
 
 $(OUTPUT_FILE).elf: $(OFILES)
 
@@ -203,14 +203,14 @@ $(OUTPUT_FILE).cia: $(OUTPUT_FILE).elf banner.bnr icon.icn
 	@$(MAKEROM) -f cia -o $(OUTPUT_FILE).cia -DAPP_ENCRYPTED=false $(COMMON_MAKEROM_PARAMS)
 	@echo "built ... $(notdir $@)"
 
-$(OUTPUT_FILE).zip: $(OUTPUT_FILE).smdh $(OUTPUT_FILE).3dsx
-	@cd $(OUTPUT_DIR); \
-	mkdir -p 3ds/$(OUTPUT_NAME); \
-	cp $(OUTPUT_FILE).3dsx 3ds/$(OUTPUT_NAME); \
-	cp $(OUTPUT_FILE).smdh 3ds/$(OUTPUT_NAME); \
-	zip -r $(OUTPUT_FILE).zip 3ds > /dev/null; \
-	rm -r 3ds
-	@echo "built ... $(notdir $@)"
+#$(OUTPUT_FILE).zip: $(OUTPUT_FILE).smdh $(OUTPUT_FILE).3dsx
+#	@cd $(OUTPUT_DIR); \
+#	mkdir -p 3ds/$(OUTPUT_NAME); \
+#	cp $(OUTPUT_FILE).3dsx 3ds/$(OUTPUT_NAME); \
+#	cp $(OUTPUT_FILE).smdh 3ds/$(OUTPUT_NAME); \
+#	zip -r $(OUTPUT_FILE).zip 3ds > /dev/null; \
+#	rm -r 3ds
+#	@echo "built ... $(notdir $@)"
 
 3dsx : $(OUTPUT_FILE).3dsx
 

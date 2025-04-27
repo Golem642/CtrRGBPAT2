@@ -9,10 +9,11 @@ Everything is simple and made so you cannot possibly screw something up (unless 
 
 ## Upcoming
 - [x] ~~StreetPass and Friends notification support (+ two unknown/unused? notification types)~~
-- [ ] "Low Battery" notifications support
-- [x] ~~Full editor to allow you to create your own patterns (might add more later)~~
-- [ ] Separate settings for Sleeping/Awake
-- [ ] Instant preview when selecting a color
+- [x] ~~"Low Battery" notifications support~~
+- [x] ~~Full editor to allow you to create your own patterns~~
+- [x] ~~Separate settings for Sleeping/Awake~~
+- [x] ~~Preview in a lot of places~~
+- [x] ~~Presets loading~~
 - [ ] Save and restore feature
 - [ ] NFC color receiving ?
 - [x] ~~Toggle on/off~~
@@ -30,12 +31,19 @@ Everything is simple and made so you cannot possibly screw something up (unless 
 
 # Building
 After some research I determined that this is made for devkitpro for Windows. I don't know how CPunch managed to make this work but I had to make a lot of changes. 
+
 The compilation process is very weird but I didn't want to change anything to avoid breaking the currently "working" setup. 
-- The main program is in `build/main.cpp`, to compile it you can use the devkitPro Windows MSYS installation with `make` at the root of the project folder. 
-- You will get errors, that's normal. You will need to copy/paste the updated `build/CtrRGBPAT2.elf` to `resources/CtrRGBPAT2.elf`, replace if asked. 
-- Open a command prompt in the `resources` folder and execute the `Build.bat` file, it should compile without errors and you'll have a new `CtrRGBPAT2.cia` in the folder
+The main program is in `build/main.cpp`, to compile it you can use the devkitPro Windows MSYS installation with `make` at the root of the project folder.
+This should give you 4 types of file in the output folder: `3ds` (citra), `3dsx` (homebrew launcher), `cia` (install with FBI), `smdh` (info file for building).
 
 I might modify the setup in the future to make things more consistent and working everywhere.
+
+# Contributing
+I know my code isn't the cleanest, but any contribution is appreciated ! Even if you don't code, you can also suggest ideas or report bugs in the issues and discussions tabs
+
+<hr>
+
+# Initial README contents :
 
 ## eclipse-3ds-template
 This template is basically a fork of [TricksterGuy's 3ds-template](https://github.com/TricksterGuy/3ds-template) which is essentially a fork of two other templates, which I'm not going to ramble on about.
